@@ -7,6 +7,7 @@ const Allocator = std.mem.Allocator;
 
 // ----------------------- Engine submodules -------------------------
 pub const render = @import("render.zig");
+pub const time = @import("time.zig");
 
 // ----------------------- Engine state -------------------------
 pub var _engineInitialized = false;
@@ -29,6 +30,7 @@ pub fn init(windowName: [:0]const u8, heap_allocator: *Allocator) !void {
 
     try render._init(allocator, window);
     try render._initImgui(allocator);
+    try time._init();
 
     _engineInitialized = true;
 }
@@ -48,6 +50,8 @@ pub fn deinit() void {
 pub fn beginFrame() !bool {
     if (glfw.glfwWindowShouldClose(window) != 0)
         return false;
+
+    time._beginFrame();
 
     // Poll and handle events (inputs, window resize, etc.)
     // You can read the io.WantCaptureMouse, io.WantCaptureKeyboard flags to tell if dear imgui wants to use your inputs.
