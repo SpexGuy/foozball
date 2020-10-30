@@ -28,17 +28,17 @@ const WindowRenderArgs = struct {
     max_seq: i64,
 };
 
-fn Window(comptime State: type) type {
+fn Window(comptime State: type, comptime arraySize: comptime_int, comptime emptyState: State) type {
     return struct {
-        data: [MAX_FRAMES]State = [_]State{.Invalid} ** MAX_FRAMES,
+        data: [arraySize]State = [_]State{emptyState} ** arraySize,
         max_seq: i64 = 0,
 
         pub fn isValid(self: @This(), seq: i64) bool {
-            return seq <= self.max_seq and seq + MAX_FRAMES > self.max_seq; 
+            return seq <= self.max_seq and seq + arraySize > self.max_seq; 
         }
 
         pub fn slideTo(self: *@This(), seq: i64, fillState: State) void {
-            assert(seq + MAX_FRAMES > self.max_seq);
+            assert(seq + arraySize > self.max_seq);
             while (self.max_seq < seq) {
                 self.max_seq += 1;
                 self.at(self.max_seq).* = fillState;
@@ -46,13 +46,13 @@ fn Window(comptime State: type) type {
         }
 
         pub fn push(self: *@This(), frame: i64, state: State) void {
-            self.slideTo(frame, .Invalid);
+            self.slideTo(frame, emptyState);
             self.at(frame).* = state;
         }
 
         pub fn at(self: *@This(), seq: i64) *State {
             assert(self.isValid(seq));
-            return &self.data[@intCast(usize, @mod(seq, MAX_FRAMES))];
+            return &self.data[@intCast(usize, @mod(seq, arraySize))];
         }
 
         pub fn drawUI(self: *@This(), label: ?[*:0]const u8, args: WindowRenderArgs) void {
@@ -160,15 +160,24 @@ const InputPacket = struct {
 const OutputPacket = struct {
     sim_frame: i64,
     ack_frame: i64,
+    delta_latency: i8,
     arrival_time: f64,
 };
 
+const NO_DATA: i8 = -128;
 
 const Client = struct {
-    server_window: Window(ServerFrameState) = .{},
-    client_window: Window(ClientFrameState) = .{},
-    input_window: Window(NetworkFrameState) = .{},
-    output_window: Window(NetworkFrameState) = .{},
+    server_window: Window(ServerFrameState, MAX_FRAMES, .Invalid) = .{},
+    client_window: Window(ClientFrameState, MAX_FRAMES, .Invalid) = .{},
+    input_window: Window(NetworkFrameState, MAX_FRAMES, .Invalid) = .{},
+    output_window: Window(NetworkFrameState, MAX_FRAMES, .Invalid) = .{},
+
+    /// History of latency of last 64 frames.  Positive numbers indicate
+    /// late packets, negative numbers indicate early packets.  The maximum
+    /// value in this array indicates how many frames the client should
+    /// shift in order to have ideal latency.
+    server_latency_history: Window(i8, 64, NO_DATA) = .{},
+
     /// average round trip time
     rtt_average: f32 = 150,
     /// percent of average
@@ -187,6 +196,7 @@ const Client = struct {
 
     client_max_simmed: i64 = 0,
     client_max_acked: i64 = 0,
+    client_delta_latency: i8 = 0,
 
     last_client_frame_seq: i64 = 0,
     last_client_frame_time: f64 = 0,
@@ -226,16 +236,17 @@ const Client = struct {
         self.outputs.append(.{
             .sim_frame = simFrame,
             .ack_frame = ackFrame,
+            .delta_latency = self.calcTargetLatencyDelta(),
             .arrival_time = sendTime + transmitTime,
         }) catch unreachable;
     }
 
-    fn processInputs(self: *Client, simTime: f64) void {
+    fn processInputs(self: *Client, simTime: f64, simFrame: i64) void {
         var c = self.inputs.items.len;
         while (c > 0) {
             c -= 1;
             if (self.inputs.items[c].arrival_time <= simTime) {
-                self.processInput(self.inputs.items[c]);
+                self.processInput(self.inputs.items[c], simFrame);
                 _ = self.inputs.swapRemove(c);
             }
         }
@@ -255,9 +266,10 @@ const Client = struct {
         if (anyProcessed) self.updateClientWindow();
     }
 
-    fn processInput(self: *Client, input: InputPacket) void {
+    fn processInput(self: *Client, input: InputPacket, serverFrame: i64) void {
         self.input_window.push(input.end_frame, .Received);
         self.server_window.slideTo(input.end_frame, .Invalid);
+        self.server_latency_history.slideTo(input.end_frame, NO_DATA);
         var frame = input.start_frame;
         while (frame <= input.end_frame) : (frame += 1) {
             if (self.server_window.isValid(frame)) {
@@ -268,14 +280,24 @@ const Client = struct {
                 };
                 self.server_window.at(frame).* = newState;
             }
+            if (self.server_latency_history.isValid(frame)) {
+                const value = self.server_latency_history.at(frame).*;
+                const latency = (serverFrame + 1) - frame;
+                if (latency < value or value == NO_DATA) {
+                    self.server_latency_history.push(frame, @intCast(i8, latency));
+                }
+            }
         }
     }
 
     fn processOutput(self: *Client, output: OutputPacket) void {
         self.output_window.push(output.sim_frame, .Received);
         // Note max sim frame may be larger than max_seq if the client is behind the server somehow
-        self.client_max_acked = math.max(self.client_max_acked, output.ack_frame);
-        self.client_max_simmed = math.max(self.client_max_simmed, output.sim_frame);
+        if (output.sim_frame > self.client_max_simmed) {
+            self.client_max_simmed = output.sim_frame;
+            self.client_max_acked = output.ack_frame;
+            self.client_delta_latency = output.delta_latency;
+        }
     }
 
     fn updateClientWindow(self: *Client) void {
@@ -292,6 +314,14 @@ const Client = struct {
         }
     }
 
+    fn calcTargetLatencyDelta(self: *Client) i8 {
+        var maxDelta: i8 = -127;
+        for (self.server_latency_history.data) |delta| {
+            if (delta > maxDelta) maxDelta = delta;
+        }
+        return maxDelta;
+    }
+
     pub fn doClientFrame(self: *Client, simTime: f64) void {
         const frame = self.last_client_frame_seq + 1;
 
@@ -299,12 +329,7 @@ const Client = struct {
         self.client_window.push(frame, .Transmitted);
         self.sendInput(frame, simTime);
         
-        const serverBufferSize = self.client_max_acked - self.client_max_simmed;
-        if (serverBufferSize > 2) {
-            self.client_time_scale = 0.96;
-        } else if (serverBufferSize < 1) {
-            self.client_time_scale = 1.04;
-        }
+        self.client_time_scale = math.clamp(1 + 0.01 * @intToFloat(f64, self.client_delta_latency), 0.9, 1.4);
 
         self.last_client_frame_time = simTime;
         self.last_client_frame_seq = frame;
@@ -312,7 +337,7 @@ const Client = struct {
 
     pub fn doServerFrame(self: *Client, simTime: f64, simFrame: i64) void {
         // process network inputs
-        self.processInputs(simTime);
+        self.processInputs(simTime, simFrame);
 
         // sim one frame
         var missedInput = true;
