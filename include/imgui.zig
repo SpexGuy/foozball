@@ -18,8 +18,16 @@ pub fn CHECKVERSION() void {
     }
 }
 
+pub fn COL32(r: u8, g: u8, b: u8, a: u8) u32 {
+    return @shlExact(@as(u32, a), 24) |
+           @shlExact(@as(u32, r),  0) |
+           @shlExact(@as(u32, g),  8) |
+           @shlExact(@as(u32, b), 16);
+}
+
 pub const FLT_MAX = @import("std").math.f32_max;
 pub const FlagsInt = u32;
+
 pub fn FlagsMixin(comptime FlagType: type) type {
     comptime assert(@sizeOf(FlagType) == 4);
     return struct {
@@ -4017,7 +4025,7 @@ pub inline fn InputTextWithHint(label: ?[*:0]const u8, hint: ?[*:0]const u8, buf
     return InputTextWithHintExt(label, hint, buf, buf_size, .{}, null, null);
 }
 
-/// InvisibleButton(str_id: ?[*:0]const u8, size: Vec2) bool
+/// InvisibleButton(str_id: [*:0]const u8, size: Vec2) bool
 pub const InvisibleButton = raw.igInvisibleButton;
 
 /// IsAnyItemActive() bool
@@ -4276,7 +4284,7 @@ pub const PopAllowKeyboardFocus = raw.igPopAllowKeyboardFocus;
 pub const PopButtonRepeat = raw.igPopButtonRepeat;
 
 /// PopClipRect() void
-pub const PopClipRect = raw.igPopClipRect;
+pub const PopGlobalClipRect = raw.igPopClipRect;
 
 /// PopFont() void
 pub const PopFont = raw.igPopFont;
@@ -4315,7 +4323,7 @@ pub const PushAllowKeyboardFocus = raw.igPushAllowKeyboardFocus;
 pub const PushButtonRepeat = raw.igPushButtonRepeat;
 
 /// PushClipRect(clip_rect_min: Vec2, clip_rect_max: Vec2, intersect_with_current_clip_rect: bool) void
-pub const PushClipRect = raw.igPushClipRect;
+pub const PushGlobalClipRect = raw.igPushClipRect;
 
 /// PushFont(font: ?*Font) void
 pub const PushFont = raw.igPushFont;
@@ -5722,7 +5730,7 @@ pub const raw = struct {
     pub extern fn igInputText(label: ?[*:0]const u8, buf: ?[*]u8, buf_size: usize, flags: InputTextFlagsInt, callback: InputTextCallback, user_data: ?*c_void) callconv(.C) bool;
     pub extern fn igInputTextMultiline(label: ?[*:0]const u8, buf: ?[*]u8, buf_size: usize, size: Vec2, flags: InputTextFlagsInt, callback: InputTextCallback, user_data: ?*c_void) callconv(.C) bool;
     pub extern fn igInputTextWithHint(label: ?[*:0]const u8, hint: ?[*:0]const u8, buf: ?[*]u8, buf_size: usize, flags: InputTextFlagsInt, callback: InputTextCallback, user_data: ?*c_void) callconv(.C) bool;
-    pub extern fn igInvisibleButton(str_id: ?[*:0]const u8, size: Vec2) callconv(.C) bool;
+    pub extern fn igInvisibleButton(str_id: [*:0]const u8, size: Vec2) callconv(.C) bool;
     pub extern fn igIsAnyItemActive() callconv(.C) bool;
     pub extern fn igIsAnyItemFocused() callconv(.C) bool;
     pub extern fn igIsAnyItemHovered() callconv(.C) bool;

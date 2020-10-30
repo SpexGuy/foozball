@@ -6,6 +6,7 @@ const vk = @import("vk");
 const gltf = @import("gltf_wrap.zig");
 const engine = @import("engine.zig");
 const autogui = @import("autogui.zig");
+const nettest = @import("nettest.zig");
 
 const Allocator = std.mem.Allocator;
 const warn = std.debug.warn;
@@ -106,16 +107,16 @@ fn unloadModel(data: *gltf.Data) void {
 
 var show_demo_window = false;
 var show_gltf_data = false;
+var show_network_test = true;
 var clearColor = ig.Vec4{ .x = 0.2, .y = 0.2, .z = 0.2, .w = 1 };
 
 pub fn main() !void {
-    try engine.init("glTF Renderer", heap_allocator);
+    try engine.init("fooz", heap_allocator);
     defer engine.deinit();
 
     // Our state
-    var data = try loadModel(loadedModelIndex);
-    defer unloadModel(data);
-    assert(!data.renderingDataInitialized);
+    var data: ?*gltf.Data = null;
+    defer if (data) |model| unloadModel(model);
 
     // Main loop
     while (try engine.beginFrame()) : (engine.endFrame()) {
@@ -134,16 +135,26 @@ pub fn main() !void {
                 targetModelIndex = if (targetModelIndex >= models.len - 1) 0 else (targetModelIndex + 1);
             }
             _ = ig.Checkbox("Show glTF Data", &show_gltf_data);
+            _ = ig.Checkbox("Show Network Test", &show_network_test);
             _ = ig.Checkbox("Show ImGui Demo", &show_demo_window);
             if (ig.Button("Crash")) {
                 @panic("Don't press the big shiny button!");
             }
         }
+
         if (show_demo_window) ig.ShowDemoWindowExt(&show_demo_window);
-        if (show_gltf_data) drawGltfUI(data, &show_gltf_data);
+
+        if (show_gltf_data) {
+            if (data == null) {
+                data = try loadModel(targetModelIndex);
+            }
+            drawGltfUI(data.?, &show_gltf_data);
+        }
+
+        if (show_network_test) nettest.drawUI(&show_network_test);
 
         if (targetModelIndex != loadedModelIndex) {
-            unloadModel(data);
+            if (data) |model| unloadModel(model);
             data = try loadModel(targetModelIndex);
             loadedModelIndex = targetModelIndex;
         }
@@ -152,10 +163,12 @@ pub fn main() !void {
         var frame = try engine.render.beginRender();
         defer frame.end();
 
-        if (data.renderingDataInitialized != true) {
-            warn("Setting up rendering data...\n", .{});
-            try uploadRenderingData(data, &frame);
-            assert(data.renderingDataInitialized);
+        if (data) |model| {
+            if (model.renderingDataInitialized != true) {
+                warn("Setting up rendering data...\n", .{});
+                try uploadRenderingData(model, &frame);
+                assert(model.renderingDataInitialized);
+            }
         }
 
         // TODO: Make this beginRenderPass(colorPass)
