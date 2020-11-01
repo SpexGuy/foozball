@@ -8,6 +8,7 @@ const Allocator = std.mem.Allocator;
 // ----------------------- Engine submodules -------------------------
 pub const render = @import("render.zig");
 pub const time = @import("time.zig");
+pub const net = @import("net.zig");
 
 // ----------------------- Engine state -------------------------
 pub var _engineInitialized = false;
@@ -20,6 +21,8 @@ pub fn init(windowName: [:0]const u8, heap_allocator: *Allocator) !void {
 
     allocator = heap_allocator;
 
+    try time._init();
+
     // Setup GLFW window
     _ = glfw.glfwSetErrorCallback(glfw_error_callback);
     if (glfw.glfwInit() == 0)
@@ -30,7 +33,8 @@ pub fn init(windowName: [:0]const u8, heap_allocator: *Allocator) !void {
 
     try render._init(allocator, window);
     try render._initImgui(allocator);
-    try time._init();
+
+    try net._init();
 
     _engineInitialized = true;
 }
@@ -38,6 +42,8 @@ pub fn deinit() void {
     assert(_engineInitialized);
 
     // Cleanup
+    net._deinit();
+
     render._deinitImgui();
     render._deinit();
 

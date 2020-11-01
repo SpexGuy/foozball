@@ -39,21 +39,27 @@ fn setDependencies(b: *Builder, step: *LibExeObjStep) void {
     step.addPackagePath("vk", "include/vk.zig");
     step.addPackagePath("glfw", "include/glfw.zig");
     step.addPackagePath("cgltf", "include/cgltf.zig");
+    step.addPackagePath("enet", "include/enet.zig");
 
     if (std.builtin.os.tag == .windows) {
         if (mode == .Debug) {
             step.linkSystemLibrary("lib/win/cimguid");
+            step.linkSystemLibrary("lib/win/enetd");
         } else {
             step.linkSystemLibrary("lib/win/cimgui");
+            step.linkSystemLibrary("lib/win/enet");
         }
         step.linkSystemLibrary("lib/win/glfw3");
         step.linkSystemLibrary("lib/win/vulkan-1");
         step.linkSystemLibrary("gdi32");
         step.linkSystemLibrary("shell32");
+        step.linkSystemLibrary("winmm");
+        step.linkSystemLibrary("ws2_32");
     } else {
         step.linkSystemLibrary("glfw");
         step.linkSystemLibrary("vulkan");
         @compileError("TODO: Build and link cimgui for non-windows platforms");
+        @compileError("TODO: Build and link enet for non-windows platforms");
     }
 
     step.addCSourceFile("c_src/cgltf.c", &[_][]const u8{ "-std=c99", "-DCGLTF_IMPLEMENTATION", "-D_CRT_SECURE_NO_WARNINGS" });
